@@ -7,6 +7,8 @@ library(broom)
 
 library(dplyr)
 
+# Finished, Consent_agree and Eligibility_agree need to == 1, Psychedelics_EverUse need to be 1 to continue analysis
+
 
 df <- read.csv("/Users/zsayali1/Documents/EffortSurveyStudy/data/NFC.csv")
 df
@@ -21,6 +23,7 @@ df_clean <- df %>%
 
 dim(df_clean)
 
+# now we will compare user response to attention_chk_1 correct being 4; attention_chk_2 correct being 3; attention_chk_3 correct being 4, if the mean accuracy across all three checks is below 66%, then do not include that participant so another cleaning level
 df_clean <- df_clean %>%
     mutate(
     # convert to numeric
