@@ -1,1 +1,43 @@
 %%%Code from Jupyter
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(broom)
+
+library(dplyr)
+
+
+df <- read.csv("/Users/zsayali1/Documents/EffortSurveyStudy/data/NFC.csv")
+df
+
+df_clean <- df %>%
+  filter(
+    Finished == 1,
+    Consent_agree == 1,
+    Eligibility_agree == 1,
+    Psychedelics_EverUse == 1
+  )
+
+dim(df_clean)
+
+df_clean <- df_clean %>%
+    mutate(
+    # convert to numeric
+    attention_chk_1 = as.numeric(attention_chk_1),
+    attention_chk_2 = as.numeric(attention_chk_2),
+    attention_chk_3 = as.numeric(attention_chk_3),
+    
+    # count wrong answers, ignoring NA
+    attention_wrong = rowSums(
+      cbind(
+        attention_chk_1 != 4,
+        attention_chk_2 != 3,
+        attention_chk_3 != 4
+      ),
+      na.rm = TRUE
+    )
+  )
+df_clean_attention <- df_clean %>% filter(attention_wrong <= 1)
+df_clean_attention <- cbind(ID = seq_len(nrow(df_clean_attention)), df_clean_attention)
+df_clean_attention
