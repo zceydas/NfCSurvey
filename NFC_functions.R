@@ -179,3 +179,19 @@ dassprepost.scoring <- function(data,keep.vars,dass) {
   # return
   return(output)
 }
+
+###################################
+#Psychedelics_when barplot
+plot_delta_when <- function(df, delta_var, title){
+  df %>%
+    group_by(Psychedelics_when) %>%
+    summarise(
+      mean_delta = mean(.data[[delta_var]], na.rm = TRUE),
+      se = sd(.data[[delta_var]], na.rm = TRUE) / sqrt(n())
+    ) %>%
+    ggplot(aes(x = Psychedelics_when, y = mean_delta)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = mean_delta - se, ymax = mean_delta + se), width = 0.2) +
+    labs(title = title, x = "Time Since First Use", y = "Change (Post - Pre)") +
+    theme_minimal()
+}
