@@ -16,6 +16,8 @@ library(ggplot2)
 library(broom)
 library(emmeans)
 
+#rodrigo
+
 library(dplyr)
 
 # Finished, Consent_agree and Eligibility_agree need to == 1, Psychedelics_EverUse need to be 1 to continue analysis
