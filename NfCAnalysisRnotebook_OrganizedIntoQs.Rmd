@@ -1,0 +1,786 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+###Code from Jupyter
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(broom)
+library(emmeans)
+
+library(dplyr)
+
+# Finished, Consent_agree and Eligibility_agree need to == 1, Psychedelics_EverUse need to be 1 to continue analysis
+
+source("/Users/zsayali1/Documents/EffortSurveyStudy/R/NfCSurvey/NFC_functions.R")
+
+df <- read.csv("/Users/zsayali1/Documents/EffortSurveyStudy/Data/NFC.csv", check.names = FALSE)
+names(df) <- trimws(names(df))
+names(df) <- gsub("\\.$", "", names(df))
+df
+
+df_clean <- df %>%
+  filter(
+    Finished == 1,
+    Consent_agree == 1,
+    Eligibility_agree == 1,
+    Psychedelics_EverUse == 1
+  )
+
+dim(df_clean)
+
+# now we will compare user response to attention_chk_1 correct being 4; attention_chk_2 correct being 3; attention_chk_3 correct being 4, if the mean accuracy across all three checks is below 66%, then do not include that participant so another cleaning level
+df_clean <- df_clean %>%
+  mutate(
+    # convert to numeric
+    attention_chk_1 = as.numeric(attention_chk_1),
+    attention_chk_2 = as.numeric(attention_chk_2),
+    attention_chk_3 = as.numeric(attention_chk_3),
+    
+    # count wrong answers, ignoring NA
+    attention_wrong = rowSums(
+      cbind(
+        attention_chk_1 != 4,
+        attention_chk_2 != 3,
+        attention_chk_3 != 4
+      ),
+      na.rm = TRUE
+    )
+  )
+df_clean_attention <- df_clean %>% filter(attention_wrong <= 1)
+df_clean_attention <- cbind(ID = seq_len(nrow(df_clean_attention)), df_clean_attention)
+df_clean_attention
+data_clean <- df_clean_attention
+
+#calculate MEQ Scores
+source("QA_Library.R")
+meq_cols <- paste0("MEQ_", 1:30)
+data_clean[meq_cols] <- lapply(data_clean[meq_cols], as.numeric)
+meq_output <- meq.scoring(data_clean)
+
+#calculate CEQ Scores
+ceq_cols <- paste0("CEQ_", 1:26)
+data_clean[ceq_cols] <- lapply(data_clean[ceq_cols], as.numeric)
+ceq_output <- ceq.scoring(data_clean)
+
+#calculate Psychological Insight (PIQ) Scores
+piq_cols <- paste0("PsychInsight_", 1:23)
+data_clean[piq_cols] <- lapply(data_clean[piq_cols], as.numeric)
+piq_output <- psychinsight.scoring(data_clean)
+
+#calculate AAQ pre and post scores
+aaqpre_cols <- paste0("AAQ_pre_", 1:7)
+data_clean[aaqpre_cols] <- lapply(data_clean[aaqpre_cols], as.numeric)
+aaqpre_output <- aaq.scoring(data_clean[, c("ID", aaqpre_cols)])
+aaqpost_cols <- paste0("AAQ_post_", 1:7)
+data_clean[aaqpost_cols] <- lapply(data_clean[aaqpost_cols], as.numeric)
+aaqpost_output <- aaq.scoring(data_clean[, c("ID", aaqpost_cols)])
+aaq_combined <- merge(aaqpre_output, aaqpost_output, by = "keeps", suffixes = c("_pre", "_post"))
+aaq_combined$aaq_delta <- aaq_combined$aaq.total_post - aaq_combined$aaq.total_pre
+names(aaq_combined)[names(aaq_combined) == "keeps"] <- "ID"
+
+#calculate NFC pre and post scores
+nfcpre_cols <- paste0("NfC_Pre_", 1:18)
+data_clean[nfcpre_cols] <- lapply(data_clean[nfcpre_cols], as.numeric)
+nfcpre_output <- nfc.scoring(data_clean[, c("ID", nfcpre_cols)])
+nfcpost_cols <- paste0("NfC_Post_", 1:18)
+data_clean[nfcpost_cols] <- lapply(data_clean[nfcpost_cols], as.numeric)
+nfcpost_output <- nfc.scoring(data_clean[, c("ID", nfcpost_cols)])
+nfc_combined <- merge(nfcpre_output, nfcpost_output, by = "keeps", suffixes = c("_pre", "_post"))
+nfc_combined$nfc_delta <- nfc_combined$nfc.total_post - nfc_combined$nfc.total_pre
+names(nfc_combined)[names(nfc_combined) == "keeps"] <- "ID"
+
+#calculate CFS pre and post scores
+cfspre_cols <- paste0("CFS_Pre_", 1:12)
+data_clean[cfspre_cols] <- lapply(data_clean[cfspre_cols], as.numeric)
+cfspre_output <- cfs.scoring(data_clean[, c("ID", cfspre_cols)])
+cfspost_cols <- paste0("CFS_Post_", 1:12)
+data_clean[cfspost_cols] <- lapply(data_clean[cfspost_cols], as.numeric)
+cfspost_output <- cfs.scoring(data_clean[, c("ID", cfspost_cols)])
+cfs_combined <- merge(cfspre_output, cfspost_output, by = "keeps", suffixes = c("_pre", "_post"))
+cfs_combined$cfs_delta <- cfs_combined$cfs.total_post - cfs_combined$cfs.total_pre
+names(cfs_combined)[names(cfs_combined) == "keeps"] <- "ID"
+
+#calculate WMQ pre and post scores
+wmqpre_cols <- paste0("WMQ_Pre_", 1:30)
+data_clean[wmqpre_cols] <- lapply(data_clean[wmqpre_cols], as.numeric)
+wmqpre_output <- wmq.scoring(data_clean[, c("ID", wmqpre_cols)])
+wmqpost_cols <- paste0("WMQ_Post_", 1:30)
+data_clean[wmqpost_cols] <- lapply(data_clean[wmqpost_cols], as.numeric)
+wmqpost_output <- wmq.scoring(data_clean[, c("ID", wmqpost_cols)])
+wmq_combined <- merge(wmqpre_output, wmqpost_output, by = "keeps", suffixes = c("_pre", "_post"))
+wmq_combined$wmq_totaldelta <- wmq_combined$wmq.total_post - wmq_combined$wmq.total_pre
+wmq_combined$wmq_storagedelta <- wmq_combined$wmq.storage_post - wmq_combined$wmq.storage_pre
+wmq_combined$wmq_attentiondelta <- wmq_combined$wmq.attention_post - wmq_combined$wmq.attention_pre
+wmq_combined$wmq_executivedelta <- wmq_combined$wmq.executive_post - wmq_combined$wmq.executive_pre
+names(wmq_combined)[names(wmq_combined) == "keeps"] <- "ID"
+
+#calculate DASS pre and post scores
+dasspre_cols <- paste0("DASS_pre_", 1:21)
+data_clean[dasspre_cols] <- lapply(data_clean[dasspre_cols], as.numeric)
+dasspre_output <- dassprepost.scoring(data_clean[, c("ID", dasspre_cols)])
+dasspost_cols <- paste0("DASS_post_", 1:21)
+data_clean[dasspost_cols] <- lapply(data_clean[dasspost_cols], as.numeric)
+dasspost_output <- dassprepost.scoring(data_clean[, c("ID", dasspost_cols)])
+dass_combined <- merge(dasspre_output, dasspost_output, by = "keeps", suffixes = c("_pre", "_post"))
+dass_combined$dass_depressiondelta <- dass_combined$dass.depression_post - dass_combined$dass.depression_pre
+dass_combined$dass_anxietydelta <- dass_combined$dass.anxiety_post - dass_combined$dass.anxiety_pre #negative indicates improvement in symptoms
+dass_combined$dass_stressdelta <- dass_combined$dass.stress_post - dass_combined$dass.stress_pre
+names(dass_combined)[names(dass_combined) == "keeps"] <- "ID"
+
+#Make bar graphs for all change scores as a function of psychedelics_when
+aaq_combined <- left_join(aaq_combined, data_clean[, c("ID", "Psychedelics_when")], by = "ID")
+nfc_combined <- left_join(nfc_combined, data_clean[, c("ID", "Psychedelics_when")], by = "ID")
+cfs_combined <- left_join(cfs_combined, data_clean[, c("ID", "Psychedelics_when")], by = "ID")
+wmq_combined <- left_join(wmq_combined, data_clean[, c("ID", "Psychedelics_when")], by = "ID")
+dass_combined <- left_join(dass_combined, data_clean[, c("ID", "Psychedelics_when")], by = "ID")
+label_levels <- c("<1mo", "3-6mo", "6-12mo", "1-3yr", ">3yr")
+
+for(df in list(aaq_combined, nfc_combined, cfs_combined, wmq_combined, dass_combined)){
+  df$Psychedelics_when <- factor(df$Psychedelics_when, levels = 1:5, labels = label_levels)
+}
+plot_delta_when(nfc_combined, "nfc_delta", "NFC Change")
+plot_delta_when(aaq_combined, "aaq_delta", "AAQ Change")
+plot_delta_when(cfs_combined, "cfs_delta", "CFS Change")
+plot_delta_when(wmq_combined, "wmq_totaldelta", "WMQ Total Change")
+plot_delta_when(wmq_combined, "wmq_storagedelta", "WMQ Storage Change")
+plot_delta_when(wmq_combined, "wmq_attentiondelta", "WMQ Attention Change")
+plot_delta_when(wmq_combined, "wmq_executivedelta", "WMQ Executive Change")
+plot_delta_when(dass_combined, "dass_depressiondelta", "DASS Depression Change")
+plot_delta_when(dass_combined, "dass_anxietydelta", "DASS Anxiety Change")
+plot_delta_when(dass_combined, "dass_stressdelta", "DASS Stress Change")
+
+#Mixed Effects of NFC
+nfc_long <- nfc_combined %>%
+  select(ID, nfc.total_pre, nfc.total_post) %>%
+  pivot_longer(
+    cols = c(nfc.total_pre, nfc.total_post),
+    names_to = "time",
+    values_to = "nfc_total"
+  ) %>%
+  mutate(
+    time = factor(time, levels = c("nfc.total_pre", "nfc.total_post"), labels = c("pre", "post"))
+  )
+nfc_long <- nfc_long %>%
+  left_join(
+    data_clean %>% select(ID, Psychedelics_when),
+    by = "ID"
+  )
+nfc_long$Psychedelics_when <- factor(
+  nfc_long$Psychedelics_when,
+  levels = 1:5,
+  labels = c("<1mo", "3-6mo", "6-12mo", "1-3yr", ">3yr")
+)
+# Combine groups 2,3,4 into a single "3-36mo" group
+nfc_long <- nfc_long %>%
+  mutate(
+    recent_user = case_when(
+      Psychedelics_when == "<1mo" ~ "<1mo",
+      Psychedelics_when %in% c("3-6mo", "6-12mo", "1-3yr") ~ "3-36mo",
+      Psychedelics_when == ">3yr" ~ ">3yr"
+    ),
+    recent_user = factor(recent_user, levels = c("<1mo", "3-36mo", ">3yr"))
+  )
+# Random intercept for each participant
+nfc_model <- lmer(nfc_total ~ time * Psychedelics_when + (1|ID), data = nfc_long)
+summary(nfc_model)
+# Check pre vs post NFC change within each first-use group
+nfc_emm <- emmeans(nfc_model, pairwise ~ time | Psychedelics_when)
+nfc_emm$contrasts  # pairwise comparisons
+
+nfc_model_recent <- lmer(nfc_total ~ time * recent_user + (1|ID), data = nfc_long)
+summary(nfc_model_recent)
+
+nfc_emm_recent <- emmeans(nfc_model_recent, pairwise ~ time | recent_user)
+nfc_emm_recent$contrasts
+```
+```{r}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(broom)
+
+# =========================================================
+# 0) BUILD A MASTER DATASET
+# =========================================================
+
+master_df <- data_clean %>%
+  select(ID) %>%
+  left_join(dass_combined %>%
+              select(ID,
+                     dass.depression_pre, dass.depression_post,
+                     dass.anxiety_pre, dass.anxiety_post,
+                     dass.stress_pre, dass.stress_post,
+                     dass_depressiondelta, dass_anxietydelta, dass_stressdelta),
+            by = "ID") %>%
+  left_join(nfc_combined %>%
+              select(ID, nfc.total_pre, nfc.total_post, nfc_delta),
+            by = "ID") %>%
+  left_join(aaq_combined %>%
+              select(ID, aaq.total_pre, aaq.total_post, aaq_delta),
+            by = "ID") %>%
+  left_join(cfs_combined %>%
+              select(ID, cfs.total_pre, cfs.total_post, cfs_delta),
+            by = "ID") %>%
+  left_join(wmq_combined %>%
+              select(ID,
+                     wmq.total_pre, wmq.total_post, wmq_totaldelta,
+                     wmq.storage_pre, wmq.storage_post, wmq_storagedelta,
+                     wmq.attention_pre, wmq.attention_post, wmq_attentiondelta,
+                     wmq.executive_pre, wmq.executive_post, wmq_executivedelta),
+            by = "ID")
+```
+
+
+```{r}
+# =========================================================
+# 1) DOES MOOD IMPROVE PRE VS POST?
+#    (Depression, Anxiety, Stress)
+# =========================================================
+
+make_prepost_long <- function(df, id_col, pre_col, post_col, value_name) {
+  df %>%
+    select(all_of(c(id_col, pre_col, post_col))) %>%
+    pivot_longer(
+      cols = all_of(c(pre_col, post_col)),
+      names_to = "time",
+      values_to = value_name
+    ) %>%
+    mutate(
+      time = factor(time,
+                    levels = c(pre_col, post_col),
+                    labels = c("Pre", "Post"))
+    )
+}
+
+run_prepost_mixed <- function(long_df, outcome, title_text, ylab_text) {
+  form <- as.formula(paste0(outcome, " ~ time + (1 | ID)"))
+  model <- lmer(form, data = long_df)
+  
+  print(summary(model))
+  print(emmeans(model, pairwise ~ time))
+  
+  p <- ggplot(long_df, aes(x = time, y = .data[[outcome]], group = ID)) +
+    geom_line(alpha = 0.15, color = "gray70") +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "line",
+      linewidth = 1.4,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "point",
+      size = 3,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun.data = mean_se,
+      geom = "errorbar",
+      width = 0.08,
+      color = "red"
+    ) +
+    theme_classic() +
+    labs(
+      title = title_text,
+      x = "Time",
+      y = ylab_text
+    )
+  
+  print(p)
+  
+  invisible(model)
+}
+
+# Depression
+dep_long <- make_prepost_long(master_df, "ID", "dass.depression_pre", "dass.depression_post", "depression")
+dep_model <- run_prepost_mixed(dep_long, "depression", "Pre/Post DASS Depression", "DASS Depression")
+
+# Anxiety
+anx_long <- make_prepost_long(master_df, "ID", "dass.anxiety_pre", "dass.anxiety_post", "anxiety")
+anx_model <- run_prepost_mixed(anx_long, "anxiety", "Pre/Post DASS Anxiety", "DASS Anxiety")
+
+# Stress
+stress_long <- make_prepost_long(master_df, "ID", "dass.stress_pre", "dass.stress_post", "stress")
+stress_model <- run_prepost_mixed(stress_long, "stress", "Pre/Post DASS Stress", "DASS Stress")
+```
+
+
+```{r}
+# =========================================================
+# 2) DO MOOD AND COGNITIVE MEASURES CORRELATE
+#    AT BASELINE AND AT POST?
+# =========================================================
+
+mood_vars_pre  <- c("dass.depression_pre", "dass.anxiety_pre", "dass.stress_pre")
+mood_vars_post <- c("dass.depression_post", "dass.anxiety_post", "dass.stress_post")
+
+cog_vars_pre <- c(
+  "nfc.total_pre",
+  "aaq.total_pre",
+  "cfs.total_pre",
+  "wmq.total_pre",
+  "wmq.storage_pre",
+  "wmq.attention_pre",
+  "wmq.executive_pre"
+)
+
+cog_vars_post <- c(
+  "nfc.total_post",
+  "aaq.total_post",
+  "cfs.total_post",
+  "wmq.total_post",
+  "wmq.storage_post",
+  "wmq.attention_post",
+  "wmq.executive_post"
+)
+
+cor_table_builder <- function(df, mood_vars, cog_vars, time_label) {
+  expand_grid(
+    mood = mood_vars,
+    cognitive = cog_vars
+  ) %>%
+    rowwise() %>%
+    mutate(
+      test = list(cor.test(df[[mood]], df[[cognitive]], use = "pairwise.complete.obs")),
+      estimate = unname(test$estimate),
+      p.value = test$p.value,
+      conf.low = test$conf.int[1],
+      conf.high = test$conf.int[2],
+      time = time_label
+    ) %>%
+    ungroup() %>%
+    select(time, mood, cognitive, estimate, p.value, conf.low, conf.high) %>%
+    mutate(
+      p.fdr = p.adjust(p.value, method = "fdr")
+    )
+}
+
+cor_results_pre <- cor_table_builder(master_df, mood_vars_pre, cog_vars_pre, "Pre")
+cor_results_post <- cor_table_builder(master_df, mood_vars_post, cog_vars_post, "Post")
+
+cor_results_all <- bind_rows(cor_results_pre, cor_results_post)
+
+print(cor_results_all)
+
+# Heatmap of correlations
+cor_plot_df <- cor_results_all %>%
+  mutate(
+    mood = factor(mood, levels = c(
+      "dass.depression_pre", "dass.anxiety_pre", "dass.stress_pre",
+      "dass.depression_post", "dass.anxiety_post", "dass.stress_post"
+    )),
+    cognitive = factor(cognitive, levels = c(
+      "nfc.total_pre", "aaq.total_pre", "cfs.total_pre", "wmq.total_pre",
+      "wmq.storage_pre", "wmq.attention_pre", "wmq.executive_pre",
+      "nfc.total_post", "aaq.total_post", "cfs.total_post", "wmq.total_post",
+      "wmq.storage_post", "wmq.attention_post", "wmq.executive_post"
+    ))
+  )
+
+ggplot(cor_results_all,
+       aes(x = cognitive, y = mood, fill = estimate)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.2f", estimate)), size = 3) +
+  scale_fill_gradient2(low = "navy", mid = "white", high = "firebrick", midpoint = 0) +
+  facet_wrap(~ time, scales = "free") +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold")
+  ) +
+  labs(
+    title = "Mood-Cognition Correlations at Pre and Post",
+    x = "Cognitive Measure",
+    y = "Mood Measure",
+    fill = "r"
+  )
+
+# Example scatterplot helper for any single pair
+plot_corr_pair <- function(df, xvar, yvar, title_text, xlab_text = NULL, ylab_text = NULL) {
+  ggplot(df, aes(x = .data[[xvar]], y = .data[[yvar]])) +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm", color = "red", se = TRUE) +
+    theme_classic() +
+    labs(
+      title = title_text,
+      x = ifelse(is.null(xlab_text), xvar, xlab_text),
+      y = ifelse(is.null(ylab_text), yvar, ylab_text)
+    )
+}
+
+# Example:
+print(
+  plot_corr_pair(
+    master_df,
+    "dass.depression_pre",
+    "nfc.total_pre",
+    "Baseline Depression vs Baseline NfC",
+    "Baseline Depression",
+    "Baseline NfC"
+  )
+)
+```
+
+```{r}
+# =========================================================
+# 3) OMNIBUS TESTS: ALL COGNITIVE MEASURES (PRE VS POST)
+# =========================================================
+
+cognitive_map <- tribble(
+  ~measure,           ~pre,                  ~post,                  ~ylab,
+  "NfC",              "nfc.total_pre",       "nfc.total_post",       "NfC",
+  "AAQ",              "aaq.total_pre",       "aaq.total_post",       "AAQ",
+  "CFS",              "cfs.total_pre",       "cfs.total_post",       "CFS",
+  "WMQ Total",        "wmq.total_pre",       "wmq.total_post",       "WMQ Total",
+  "WMQ Storage",      "wmq.storage_pre",     "wmq.storage_post",     "WMQ Storage",
+  "WMQ Attention",    "wmq.attention_pre",   "wmq.attention_post",   "WMQ Attention",
+  "WMQ Executive",    "wmq.executive_pre",   "wmq.executive_post",   "WMQ Executive"
+)
+
+# =========================================================
+# Helper function
+# =========================================================
+
+run_cognitive_omnibus <- function(df, id_col, pre_col, post_col, measure_name, ylab_text) {
+  
+  long_df <- df %>%
+    select(all_of(c(id_col, pre_col, post_col))) %>%
+    pivot_longer(
+      cols = all_of(c(pre_col, post_col)),
+      names_to = "time",
+      values_to = "score"
+    ) %>%
+    mutate(
+      time = factor(time,
+                    levels = c(pre_col, post_col),
+                    labels = c("Pre", "Post"))
+    )
+  
+  model <- lmer(score ~ time + (1 | ID), data = long_df)
+  
+  cat("\n=================================================\n")
+  cat("OMNIBUS TEST:", measure_name, "\n")
+  cat("=================================================\n")
+  
+  print(summary(model))
+  
+  emm <- emmeans(model, ~ time)
+  print(emm)
+  print(pairs(emm))
+  
+  # Plot
+  p <- ggplot(long_df, aes(x = time, y = score, group = ID)) +
+    geom_line(alpha = 0.15, color = "gray70") +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "line",
+      linewidth = 1.4,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "point",
+      size = 3,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun.data = mean_se,
+      geom = "errorbar",
+      width = 0.08,
+      color = "red"
+    ) +
+    theme_classic() +
+    labs(
+      title = paste0("Pre/Post ", measure_name),
+      x = "Time",
+      y = ylab_text
+    )
+  
+  print(p)
+  
+  # Return tidy result
+  tidy_res <- broom.mixed::tidy(model, effects = "fixed") %>%
+    filter(term == "timePost") %>%
+    mutate(measure = measure_name)
+  
+  return(tidy_res)
+}
+
+# =========================================================
+# Run all models
+# =========================================================
+
+library(broom.mixed)
+
+omnibus_results <- map_dfr(
+  seq_len(nrow(cognitive_map)),
+  function(i) {
+    run_cognitive_omnibus(
+      df = master_df,
+      id_col = "ID",
+      pre_col = cognitive_map$pre[i],
+      post_col = cognitive_map$post[i],
+      measure_name = cognitive_map$measure[i],
+      ylab_text = cognitive_map$ylab[i]
+    )
+  }
+)
+
+# =========================================================
+# Summary table
+# =========================================================
+
+print(omnibus_results)
+
+# Add FDR correction
+omnibus_results <- omnibus_results %>%
+  mutate(
+    p.fdr = p.adjust(p.value, method = "fdr")
+  )
+
+print(omnibus_results)
+```
+
+```{r}
+# =========================================================
+# 4) WHEN PARTICIPANTS ARE GROUPED INTO MOOD GROUPS
+#    (LOW VS HIGH), HOW DO COGNITIVE MEASURES CHANGE?
+#    MODEL THEM AND PLOT THEM
+# =========================================================
+
+# We will create baseline low/high groups separately for:
+# depression, anxiety, stress
+# Then test pre/post change in:
+# NfC, AAQ, CFS, WMQ total, WMQ storage, WMQ attention, WMQ executive
+
+cognitive_map <- tribble(
+  ~measure,           ~pre,                  ~post,                  ~ylab,
+  "NfC",              "nfc.total_pre",       "nfc.total_post",       "NfC",
+  "AAQ",              "aaq.total_pre",       "aaq.total_post",       "AAQ",
+  "CFS",              "cfs.total_pre",       "cfs.total_post",       "CFS",
+  "WMQ Total",        "wmq.total_pre",       "wmq.total_post",       "WMQ Total",
+  "WMQ Storage",      "wmq.storage_pre",     "wmq.storage_post",     "WMQ Storage",
+  "WMQ Attention",    "wmq.attention_pre",   "wmq.attention_post",   "WMQ Attention",
+  "WMQ Executive",    "wmq.executive_pre",   "wmq.executive_post",   "WMQ Executive"
+)
+
+mood_group_specs <- tribble(
+  ~group_name,   ~baseline_var,            ~pretty_name,
+  "depression",  "dass.depression_pre",    "Baseline Depression Group",
+  "anxiety",     "dass.anxiety_pre",       "Baseline Anxiety Group",
+  "stress",      "dass.stress_pre",        "Baseline Stress Group"
+)
+
+make_mood_group_df <- function(df, baseline_var, group_var_name) {
+  med <- median(df[[baseline_var]], na.rm = TRUE)
+  
+  df %>%
+    mutate(
+      !!group_var_name := if_else(
+        .data[[baseline_var]] <= med,
+        "Low",
+        "High"
+      ),
+      !!group_var_name := factor(.data[[group_var_name]], levels = c("Low", "High"))
+    )
+}
+
+make_cog_long_with_group <- function(df, id_col, pre_col, post_col, group_var, outcome_name) {
+  df %>%
+    select(all_of(c(id_col, group_var, pre_col, post_col))) %>%
+    pivot_longer(
+      cols = all_of(c(pre_col, post_col)),
+      names_to = "time",
+      values_to = outcome_name
+    ) %>%
+    mutate(
+      time = factor(time, levels = c(pre_col, post_col), labels = c("Pre", "Post"))
+    )
+}
+
+run_group_model_and_plot <- function(long_df, outcome, group_var, plot_title, ylab_text) {
+  form <- as.formula(paste0(outcome, " ~ time * ", group_var, " + (1 | ID)"))
+  model <- lmer(form, data = long_df)
+  
+  emm_form <- as.formula(paste0("~ time | ", group_var))
+  emm <- emmeans(model, emm_form)
+  
+  cat("\n=================================================\n")
+  cat("MODEL:", plot_title, "\n")
+  cat("=================================================\n")
+  print(summary(model))
+  print(emm)
+  print(pairs(emm))
+  
+  p <- ggplot(long_df, aes(x = time, y = .data[[outcome]], group = ID)) +
+    geom_line(alpha = 0.18, color = "gray70") +
+    geom_point(alpha = 0.20, color = "gray55") +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "line",
+      linewidth = 1.3,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun = mean,
+      geom = "point",
+      size = 3,
+      color = "red"
+    ) +
+    stat_summary(
+      aes(group = 1),
+      fun.data = mean_se,
+      geom = "errorbar",
+      width = 0.08,
+      color = "red"
+    ) +
+    facet_wrap(as.formula(paste("~", group_var))) +
+    theme_classic() +
+    labs(
+      title = plot_title,
+      x = "Time",
+      y = ylab_text
+    )
+  
+  print(p)
+  
+  invisible(model)
+}
+
+# Run all mood-group x cognitive-measure models
+all_group_models <- list()
+
+for (i in seq_len(nrow(mood_group_specs))) {
+  group_name <- mood_group_specs$group_name[i]
+  baseline_var <- mood_group_specs$baseline_var[i]
+  pretty_name <- mood_group_specs$pretty_name[i]
+  group_var <- paste0(group_name, "_group")
+  
+  df_grouped <- make_mood_group_df(master_df, baseline_var, group_var)
+  
+  for (j in seq_len(nrow(cognitive_map))) {
+    measure_name <- cognitive_map$measure[j]
+    pre_col <- cognitive_map$pre[j]
+    post_col <- cognitive_map$post[j]
+    ylab_text <- cognitive_map$ylab[j]
+    outcome_name <- paste0("score_", j)
+    
+    long_df <- make_cog_long_with_group(
+      df_grouped,
+      id_col = "ID",
+      pre_col = pre_col,
+      post_col = post_col,
+      group_var = group_var,
+      outcome_name = outcome_name
+    )
+    
+    plot_title <- paste0("Pre/Post ", measure_name, " by ", pretty_name)
+    
+    model_key <- paste(group_name, measure_name, sep = "_")
+    all_group_models[[model_key]] <- run_group_model_and_plot(
+      long_df = long_df,
+      outcome = outcome_name,
+      group_var = group_var,
+      plot_title = plot_title,
+      ylab_text = ylab_text
+    )
+  }
+}
+```
+
+
+```{r}
+# =========================================================
+# OPTIONAL: TIDY SUMMARY TABLE OF ALL GROUP MODELS
+# Extract interaction term for all models
+# =========================================================
+
+extract_interaction <- function(model_obj, model_name) {
+  out <- broom.mixed::tidy(model_obj, effects = "fixed")
+  out %>%
+    filter(str_detect(term, "timePost:")) %>%
+    mutate(model = model_name)
+}
+
+# If needed, install broom.mixed first:
+# install.packages("broom.mixed")
+library(broom.mixed)
+
+interaction_summary <- bind_rows(
+  lapply(names(all_group_models), function(nm) extract_interaction(all_group_models[[nm]], nm))
+)
+
+print(interaction_summary)
+```
+
+
+```{r}
+# =========================================================
+# OPTIONAL: CONTINUOUS-BASELINE VERSION
+# Better than splitting into Low/High if you want cleaner inference
+# Example for depression predicting NfC change:
+# =========================================================
+
+nfc_dep_cont_long <- master_df %>%
+  select(ID, nfc.total_pre, nfc.total_post, dass.depression_pre) %>%
+  pivot_longer(
+    cols = c(nfc.total_pre, nfc.total_post),
+    names_to = "time",
+    values_to = "nfc_total"
+  ) %>%
+  mutate(
+    time = factor(time, levels = c("nfc.total_pre", "nfc.total_post"), labels = c("Pre", "Post"))
+  )
+
+nfc_dep_cont_model <- lmer(
+  nfc_total ~ time * dass.depression_pre + (1 | ID),
+  data = nfc_dep_cont_long
+)
+
+summary(nfc_dep_cont_model)
+
+ggplot(
+  master_df %>%
+    transmute(
+      ID,
+      dass.depression_pre,
+      nfc_change = nfc.total_post - nfc.total_pre
+    ),
+  aes(x = dass.depression_pre, y = nfc_change)
+) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  theme_classic() +
+  labs(
+    title = "Change in NfC as a Function of Baseline Depression",
+    x = "Baseline Depression",
+    y = "NfC Change (Post - Pre)"
+  )
+```
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
