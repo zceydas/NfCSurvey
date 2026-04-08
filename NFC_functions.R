@@ -29,7 +29,9 @@ nfc.scoring <- function(data,keep.vars,nfc) {
   }
   
   raw.dat <- data[,nfc]
-  nfc.total <- rowSums(data[,nfc])/length(nfc)
+  reverse_items <- c(3,4,5,7,8,9,12,16,17)
+  raw.dat[, reverse_items] <- lapply(raw.dat[, reverse_items], function(x) 6 - as.numeric(x))
+  nfc.total <- rowSums(raw.dat, na.rm = TRUE) 
   
   keeps <- data[,keep.vars]
   
@@ -70,7 +72,9 @@ cfs.scoring <- function(data,keep.vars,cfs) {
   }
   
   raw.dat <- data[,cfs]
-  cfs.total <- rowSums(data[,cfs], na.rm = TRUE)
+  reverse_items <- c(2,3,5,10)
+  raw.dat[, reverse_items] <- lapply(raw.dat[, reverse_items], function(x) 7 - as.numeric(x))
+  cfs.total <- rowSums(raw.dat, na.rm = TRUE)
   
   keeps <- data[,keep.vars]
   
