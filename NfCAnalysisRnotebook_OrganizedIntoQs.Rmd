@@ -20,9 +20,9 @@ library(dplyr)
 
 # Finished, Consent_agree and Eligibility_agree need to == 1, Psychedelics_EverUse need to be 1 to continue analysis
 
-source("/Users/zsayali1/Documents/EffortSurveyStudy/R/NfCSurvey/NFC_functions.R")
+source("/Users/eweisma1/Downloads/NFCSurvey/NFC_functions.R")
 
-df <- read.csv("/Users/zsayali1/Documents/EffortSurveyStudy/Data/NFC.csv", check.names = FALSE)
+df <- read.csv("/Users/eweisma1/Downloads/NFCSurvey/NFC.csv", check.names = FALSE)
 names(df) <- trimws(names(df))
 names(df) <- gsub("\\.$", "", names(df))
 df
@@ -203,17 +203,79 @@ nfc_emm_recent <- emmeans(nfc_model_recent, pairwise ~ time | recent_user)
 nfc_emm_recent$contrasts
 ```
 ```{r}
+#Make bar graphs for all change scores as a function of psychedelics_num
+aaq_combined <- aaq_combined %>% select(-any_of("Psychedelics_num"))
+nfc_combined <- nfc_combined %>% select(-any_of("Psychedelics_num"))
+cfs_combined <- cfs_combined %>% select(-any_of("Psychedelics_num"))
+wmq_combined <- wmq_combined %>% select(-any_of("Psychedelics_num"))
+dass_combined <- dass_combined %>% select(-any_of("Psychedelics_num"))
+aaq_combined <- left_join(aaq_combined, data_clean[, c("ID", "Psychedelics_num")], by = "ID")
+nfc_combined <- left_join(nfc_combined, data_clean[, c("ID", "Psychedelics_num")], by = "ID")
+cfs_combined <- left_join(cfs_combined, data_clean[, c("ID", "Psychedelics_num")], by = "ID")
+wmq_combined <- left_join(wmq_combined, data_clean[, c("ID", "Psychedelics_num")], by = "ID")
+dass_combined <- left_join(dass_combined, data_clean[, c("ID", "Psychedelics_num")], by = "ID")
+label_levels <- c("1", "2-5", "6-10", "more than 10")
+
+aaq_combined$Psychedelics_num <- factor(aaq_combined$Psychedelics_num, levels = 1:4, labels = label_levels)
+nfc_combined$Psychedelics_num <- factor(nfc_combined$Psychedelics_num, levels = 1:4, labels = label_levels)
+cfs_combined$Psychedelics_num <- factor(cfs_combined$Psychedelics_num, levels = 1:4, labels = label_levels)
+wmq_combined$Psychedelics_num <- factor(wmq_combined$Psychedelics_num, levels = 1:4, labels = label_levels)
+dass_combined$Psychedelics_num <- factor(dass_combined$Psychedelics_num, levels = 1:4, labels = label_levels)
+
+plot_delta_num(nfc_combined, "nfc_delta", "NFC Change")
+plot_delta_num(aaq_combined, "aaq_delta", "AAQ Change")
+plot_delta_num(cfs_combined, "cfs_delta", "CFS Change")
+plot_delta_num(wmq_combined, "wmq_totaldelta", "WMQ Total Change")
+plot_delta_num(wmq_combined, "wmq_storagedelta", "WMQ Storage Change")
+plot_delta_num(wmq_combined, "wmq_attentiondelta", "WMQ Attention Change")
+plot_delta_num(wmq_combined, "wmq_executivedelta", "WMQ Executive Change")
+plot_delta_num(dass_combined, "dass_depressiondelta", "DASS Depression Change")
+plot_delta_num(dass_combined, "dass_anxietydelta", "DASS Anxiety Change")
+plot_delta_num(dass_combined, "dass_stressdelta", "DASS Stress Change")
+
+# Define delta variables for each data frame
+delta_vars <- list(
+  aaq  = list(df = aaq_combined,  deltas = c("aaq_delta")),
+  nfc  = list(df = nfc_combined,  deltas = c("nfc_delta")),
+  cfs  = list(df = cfs_combined,  deltas = c("cfs_delta")),
+  wmq  = list(df = wmq_combined,  deltas = c("wmq_totaldelta", "wmq_storagedelta", 
+                                               "wmq_attentiondelta", "wmq_executivedelta")),
+  dass = list(df = dass_combined, deltas = c("dass_depressiondelta", "dass_anxietydelta", 
+                                               "dass_stressdelta"))
+)
+
+# Run lm for each outcome
+for(name in names(delta_vars)){
+  df <- delta_vars[[name]]$df
+  df$Psychedelics_num_raw  <- as.numeric(df$Psychedelics_num)
+  df$Psychedelics_when_raw <- as.numeric(df$Psychedelics_when)
+  
+  for(delta in delta_vars[[name]]$deltas){
+    cat("\n========================================\n")
+    cat("Outcome:", delta, "\n")
+    cat("========================================\n")
+    formula <- as.formula(paste(delta, "~ Psychedelics_num_raw + Psychedelics_when_raw"))
+    print(summary(lm(formula, data = df)))
+  }
+}
+
+```
+```{r}
 library(tidyverse)
 library(lme4)
 library(lmerTest)
 library(emmeans)
 library(broom)
 
+#Restrict analysis to psychedelics_when == 3-6mo, 6-12mo, and 1-3 years
+data_clean_time <- data_clean %>%
+  filter(Psychedelics_when %in% c(2, 3, 4, 5),)
+
 # =========================================================
 # 0) BUILD A MASTER DATASET
 # =========================================================
 
-master_df <- data_clean %>%
+master_df <- data_clean_time %>%
   select(ID) %>%
   left_join(dass_combined %>%
               select(ID,
@@ -238,6 +300,33 @@ master_df <- data_clean %>%
                      wmq.attention_pre, wmq.attention_post, wmq_attentiondelta,
                      wmq.executive_pre, wmq.executive_post, wmq_executivedelta),
             by = "ID")
+
+# Define all pre/post pairs
+scale_map <- tribble(
+  ~pre,                    ~post,
+  "dass.depression_pre",   "dass.depression_post",
+  "dass.anxiety_pre",      "dass.anxiety_post",
+  "dass.stress_pre",       "dass.stress_post",
+  "nfc.total_pre",         "nfc.total_post",
+  "aaq.total_pre",         "aaq.total_post",
+  "cfs.total_pre",         "cfs.total_post",
+  "wmq.total_pre",         "wmq.total_post",
+  "wmq.storage_pre",       "wmq.storage_post",
+  "wmq.attention_pre",     "wmq.attention_post",
+  "wmq.executive_pre",     "wmq.executive_post"
+)
+
+# Scale each pair by baseline mean/SD
+for (i in seq_len(nrow(scale_map))) {
+  pre_col  <- scale_map$pre[i]
+  post_col <- scale_map$post[i]
+  
+  baseline_mean <- mean(master_df[[pre_col]], na.rm = TRUE)
+  baseline_sd   <- sd(master_df[[pre_col]], na.rm = TRUE)
+  
+  master_df[[paste0(pre_col, "_z")]]  <- (master_df[[pre_col]]  - baseline_mean) / baseline_sd
+  master_df[[paste0(post_col, "_z")]] <- (master_df[[post_col]] - baseline_mean) / baseline_sd
+}
 ```
 
 
@@ -783,4 +872,3 @@ Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by press
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
 
 The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
-
