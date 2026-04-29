@@ -267,41 +267,41 @@ library(lmerTest)
 library(emmeans)
 library(broom)
 
-#Restrict analysis to psychedelics_when == 3-6mo, 6-12mo, and 1-3 years
-data_clean_time <- data_clean %>%
-  filter(Psychedelics_when %in% c(2, 3, 4, 5),)
-
 # =========================================================
 # 0) BUILD A MASTER DATASET
 # =========================================================
 
+# Rename keeps to ID for single-timepoint measures
+names(meq_output)[names(meq_output) == "keeps"] <- "ID"
+names(ceq_output)[names(ceq_output) == "keeps"] <- "ID"
+names(piq_output)[names(piq_output) == "keeps"] <- "ID"
+
+# Restrict analysis
+data_clean_time <- data_clean %>%
+  filter(Psychedelics_when %in% c(2, 3, 4, 5))
+
+# Build master_df with everything
 master_df <- data_clean_time %>%
   select(ID) %>%
-  left_join(dass_combined %>%
-              select(ID,
-                     dass.depression_pre, dass.depression_post,
-                     dass.anxiety_pre, dass.anxiety_post,
-                     dass.stress_pre, dass.stress_post,
-                     dass_depressiondelta, dass_anxietydelta, dass_stressdelta),
-            by = "ID") %>%
-  left_join(nfc_combined %>%
-              select(ID, nfc.total_pre, nfc.total_post, nfc_delta),
-            by = "ID") %>%
-  left_join(aaq_combined %>%
-              select(ID, aaq.total_pre, aaq.total_post, aaq_delta),
-            by = "ID") %>%
-  left_join(cfs_combined %>%
-              select(ID, cfs.total_pre, cfs.total_post, cfs_delta),
-            by = "ID") %>%
-  left_join(wmq_combined %>%
-              select(ID,
-                     wmq.total_pre, wmq.total_post, wmq_totaldelta,
+  left_join(dass_combined %>% select(ID, dass.depression_pre, dass.depression_post,
+                     dass.anxiety_pre, dass.anxiety_post, dass.stress_pre, dass.stress_post,
+                     dass_depressiondelta, dass_anxietydelta, dass_stressdelta), by = "ID") %>%
+  left_join(nfc_combined %>% select(ID, nfc.total_pre, nfc.total_post, nfc_delta), by = "ID") %>%
+  left_join(aaq_combined %>% select(ID, aaq.total_pre, aaq.total_post, aaq_delta), by = "ID") %>%
+  left_join(cfs_combined %>% select(ID, cfs.total_pre, cfs.total_post, cfs_delta), by = "ID") %>%
+  left_join(wmq_combined %>% select(ID, wmq.total_pre, wmq.total_post, wmq_totaldelta,
                      wmq.storage_pre, wmq.storage_post, wmq_storagedelta,
                      wmq.attention_pre, wmq.attention_post, wmq_attentiondelta,
-                     wmq.executive_pre, wmq.executive_post, wmq_executivedelta),
-            by = "ID")
+                     wmq.executive_pre, wmq.executive_post, wmq_executivedelta), by = "ID") %>%
+  left_join(meq_output %>% select(ID, meq.total, meq.mystical, meq.positive,
+                     meq.transendence, meq.ineffibility, meq.total.pctmax, meq.complete), by = "ID") %>%
+  left_join(ceq_output %>% select(ID, ceq.fear, ceq.grief, ceq.physDistress,
+                     ceq.insanity, ceq.isolation, ceq.death,
+                     ceq.paranoia, ceq.total, ceq.total.pctmax), by = "ID") %>%
+  left_join(piq_output %>% select(ID, psychinsight.amp, psychinsight.gap,
+                     psychinsight.total), by = "ID")
 
-# Define all pre/post pairs
+# Z-score pre/post pairs by baseline
 scale_map <- tribble(
   ~pre,                    ~post,
   "dass.depression_pre",   "dass.depression_post",
@@ -316,16 +316,33 @@ scale_map <- tribble(
   "wmq.executive_pre",     "wmq.executive_post"
 )
 
-# Scale each pair by baseline mean/SD
 for (i in seq_len(nrow(scale_map))) {
   pre_col  <- scale_map$pre[i]
   post_col <- scale_map$post[i]
-  
   baseline_mean <- mean(master_df[[pre_col]], na.rm = TRUE)
   baseline_sd   <- sd(master_df[[pre_col]], na.rm = TRUE)
-  
   master_df[[paste0(pre_col, "_z")]]  <- (master_df[[pre_col]]  - baseline_mean) / baseline_sd
   master_df[[paste0(post_col, "_z")]] <- (master_df[[post_col]] - baseline_mean) / baseline_sd
+}
+
+# Z-score delta scores
+delta_vars <- c("nfc_delta", "aaq_delta", "cfs_delta",
+                "wmq_totaldelta", "wmq_storagedelta",
+                "wmq_attentiondelta", "wmq_executivedelta",
+                "dass_depressiondelta", "dass_anxietydelta", "dass_stressdelta")
+
+for (var in delta_vars) {
+  master_df[[paste0(var, "_z")]] <- scale(master_df[[var]])[, 1]
+}
+
+# Z-score single-timepoint measures (MEQ, CEQ, PIQ)
+single_tp_vars <- c("meq.total", "meq.mystical", "meq.positive", "meq.transendence",
+                    "meq.ineffibility", "ceq.total", "ceq.fear", "ceq.grief",
+                    "ceq.physDistress", "ceq.insanity", "ceq.isolation", "ceq.death",
+                    "ceq.paranoia", "psychinsight.amp", "psychinsight.gap", "psychinsight.total")
+
+for (var in single_tp_vars) {
+  master_df[[paste0(var, "_z")]] <- scale(master_df[[var]])[, 1]
 }
 ```
 
@@ -394,15 +411,15 @@ run_prepost_mixed <- function(long_df, outcome, title_text, ylab_text) {
 }
 
 # Depression
-dep_long <- make_prepost_long(master_df, "ID", "dass.depression_pre", "dass.depression_post", "depression")
+dep_long <- make_prepost_long(master_df, "ID", "dass.depression_pre_z", "dass.depression_post_z", "depression")
 dep_model <- run_prepost_mixed(dep_long, "depression", "Pre/Post DASS Depression", "DASS Depression")
 
 # Anxiety
-anx_long <- make_prepost_long(master_df, "ID", "dass.anxiety_pre", "dass.anxiety_post", "anxiety")
+anx_long <- make_prepost_long(master_df, "ID", "dass.anxiety_pre_z", "dass.anxiety_post_z", "anxiety")
 anx_model <- run_prepost_mixed(anx_long, "anxiety", "Pre/Post DASS Anxiety", "DASS Anxiety")
 
 # Stress
-stress_long <- make_prepost_long(master_df, "ID", "dass.stress_pre", "dass.stress_post", "stress")
+stress_long <- make_prepost_long(master_df, "ID", "dass.stress_pre_z", "dass.stress_post_z", "stress")
 stress_model <- run_prepost_mixed(stress_long, "stress", "Pre/Post DASS Stress", "DASS Stress")
 ```
 
@@ -413,28 +430,12 @@ stress_model <- run_prepost_mixed(stress_long, "stress", "Pre/Post DASS Stress",
 #    AT BASELINE AND AT POST?
 # =========================================================
 
-mood_vars_pre  <- c("dass.depression_pre", "dass.anxiety_pre", "dass.stress_pre")
-mood_vars_post <- c("dass.depression_post", "dass.anxiety_post", "dass.stress_post")
-
-cog_vars_pre <- c(
-  "nfc.total_pre",
-  "aaq.total_pre",
-  "cfs.total_pre",
-  "wmq.total_pre",
-  "wmq.storage_pre",
-  "wmq.attention_pre",
-  "wmq.executive_pre"
-)
-
-cog_vars_post <- c(
-  "nfc.total_post",
-  "aaq.total_post",
-  "cfs.total_post",
-  "wmq.total_post",
-  "wmq.storage_post",
-  "wmq.attention_post",
-  "wmq.executive_post"
-)
+mood_vars_pre  <- c("dass.depression_pre_z", "dass.anxiety_pre_z", "dass.stress_pre_z")
+mood_vars_post <- c("dass.depression_post_z", "dass.anxiety_post_z", "dass.stress_post_z")
+cog_vars_pre   <- c("nfc.total_pre_z", "aaq.total_pre_z", "cfs.total_pre_z",
+                    "wmq.total_pre_z", "wmq.storage_pre_z", "wmq.attention_pre_z", "wmq.executive_pre_z")
+cog_vars_post  <- c("nfc.total_post_z", "aaq.total_post_z", "cfs.total_post_z",
+                    "wmq.total_post_z", "wmq.storage_post_z", "wmq.attention_post_z", "wmq.executive_post_z")
 
 cor_table_builder <- function(df, mood_vars, cog_vars, time_label) {
   expand_grid(
@@ -468,14 +469,14 @@ print(cor_results_all)
 cor_plot_df <- cor_results_all %>%
   mutate(
     mood = factor(mood, levels = c(
-      "dass.depression_pre", "dass.anxiety_pre", "dass.stress_pre",
-      "dass.depression_post", "dass.anxiety_post", "dass.stress_post"
+      "dass.depression_pre_z", "dass.anxiety_pre_z", "dass.stress_pre_z",
+      "dass.depression_post_z", "dass.anxiety_post_z", "dass.stress_post_z"
     )),
     cognitive = factor(cognitive, levels = c(
-      "nfc.total_pre", "aaq.total_pre", "cfs.total_pre", "wmq.total_pre",
-      "wmq.storage_pre", "wmq.attention_pre", "wmq.executive_pre",
-      "nfc.total_post", "aaq.total_post", "cfs.total_post", "wmq.total_post",
-      "wmq.storage_post", "wmq.attention_post", "wmq.executive_post"
+      "nfc.total_pre_z", "aaq.total_pre_z", "cfs.total_pre_z", "wmq.total_pre_z",
+      "wmq.storage_pre_z", "wmq.attention_pre_z", "wmq.executive_pre_z",
+      "nfc.total_post_z", "aaq.total_post_z", "cfs.total_post_z", "wmq.total_post_z",
+      "wmq.storage_post_z", "wmq.attention_post_z", "wmq.executive_post_z"
     ))
   )
 
@@ -514,8 +515,8 @@ plot_corr_pair <- function(df, xvar, yvar, title_text, xlab_text = NULL, ylab_te
 print(
   plot_corr_pair(
     master_df,
-    "dass.depression_pre",
-    "nfc.total_pre",
+    "dass.depression_pre_z",
+    "nfc.total_pre_z",
     "Baseline Depression vs Baseline NfC",
     "Baseline Depression",
     "Baseline NfC"
@@ -529,14 +530,14 @@ print(
 # =========================================================
 
 cognitive_map <- tribble(
-  ~measure,           ~pre,                  ~post,                  ~ylab,
-  "NfC",              "nfc.total_pre",       "nfc.total_post",       "NfC",
-  "AAQ",              "aaq.total_pre",       "aaq.total_post",       "AAQ",
-  "CFS",              "cfs.total_pre",       "cfs.total_post",       "CFS",
-  "WMQ Total",        "wmq.total_pre",       "wmq.total_post",       "WMQ Total",
-  "WMQ Storage",      "wmq.storage_pre",     "wmq.storage_post",     "WMQ Storage",
-  "WMQ Attention",    "wmq.attention_pre",   "wmq.attention_post",   "WMQ Attention",
-  "WMQ Executive",    "wmq.executive_pre",   "wmq.executive_post",   "WMQ Executive"
+  ~measure,        ~pre,                    ~post,                   ~ylab,
+  "NfC",           "nfc.total_pre_z",       "nfc.total_post_z",      "NfC (z)",
+  "AAQ",           "aaq.total_pre_z",       "aaq.total_post_z",      "AAQ (z)",
+  "CFS",           "cfs.total_pre_z",       "cfs.total_post_z",      "CFS (z)",
+  "WMQ Total",     "wmq.total_pre_z",       "wmq.total_post_z",      "WMQ Total (z)",
+  "WMQ Storage",   "wmq.storage_pre_z",     "wmq.storage_post_z",    "WMQ Storage (z)",
+  "WMQ Attention", "wmq.attention_pre_z",   "wmq.attention_post_z",  "WMQ Attention (z)",
+  "WMQ Executive", "wmq.executive_pre_z",   "wmq.executive_post_z",  "WMQ Executive (z)"
 )
 
 # =========================================================
@@ -659,21 +660,21 @@ print(omnibus_results)
 # NfC, AAQ, CFS, WMQ total, WMQ storage, WMQ attention, WMQ executive
 
 cognitive_map <- tribble(
-  ~measure,           ~pre,                  ~post,                  ~ylab,
-  "NfC",              "nfc.total_pre",       "nfc.total_post",       "NfC",
-  "AAQ",              "aaq.total_pre",       "aaq.total_post",       "AAQ",
-  "CFS",              "cfs.total_pre",       "cfs.total_post",       "CFS",
-  "WMQ Total",        "wmq.total_pre",       "wmq.total_post",       "WMQ Total",
-  "WMQ Storage",      "wmq.storage_pre",     "wmq.storage_post",     "WMQ Storage",
-  "WMQ Attention",    "wmq.attention_pre",   "wmq.attention_post",   "WMQ Attention",
-  "WMQ Executive",    "wmq.executive_pre",   "wmq.executive_post",   "WMQ Executive"
+  ~measure,        ~pre,                    ~post,                   ~ylab,
+  "NfC",           "nfc.total_pre_z",       "nfc.total_post_z",      "NfC (z)",
+  "AAQ",           "aaq.total_pre_z",       "aaq.total_post_z",      "AAQ (z)",
+  "CFS",           "cfs.total_pre_z",       "cfs.total_post_z",      "CFS (z)",
+  "WMQ Total",     "wmq.total_pre_z",       "wmq.total_post_z",      "WMQ Total (z)",
+  "WMQ Storage",   "wmq.storage_pre_z",     "wmq.storage_post_z",    "WMQ Storage (z)",
+  "WMQ Attention", "wmq.attention_pre_z",   "wmq.attention_post_z",  "WMQ Attention (z)",
+  "WMQ Executive", "wmq.executive_pre_z",   "wmq.executive_post_z",  "WMQ Executive (z)"
 )
 
 mood_group_specs <- tribble(
-  ~group_name,   ~baseline_var,            ~pretty_name,
-  "depression",  "dass.depression_pre",    "Baseline Depression Group",
-  "anxiety",     "dass.anxiety_pre",       "Baseline Anxiety Group",
-  "stress",      "dass.stress_pre",        "Baseline Stress Group"
+  ~group_name,   ~baseline_var,               ~pretty_name,
+  "depression",  "dass.depression_pre_z",     "Baseline Depression Group",
+  "anxiety",     "dass.anxiety_pre_z",        "Baseline Anxiety Group",
+  "stress",      "dass.stress_pre_z",         "Baseline Stress Group"
 )
 
 make_mood_group_df <- function(df, baseline_var, group_var_name) {
@@ -798,23 +799,42 @@ for (i in seq_len(nrow(mood_group_specs))) {
 
 ```{r}
 # =========================================================
-# OPTIONAL: TIDY SUMMARY TABLE OF ALL GROUP MODELS
-# Extract interaction term for all models
+# SUMMARY TABLE OF ALL GROUP MODELS
+# Pre-to-post contrasts for Low and High within each model
 # =========================================================
+library(broom.mixed)
 
-extract_interaction <- function(model_obj, model_name) {
-  out <- broom.mixed::tidy(model_obj, effects = "fixed")
-  out %>%
-    filter(str_detect(term, "timePost:")) %>%
+extract_all_effects <- function(model_obj, model_name, group_var) {
+  emm <- emmeans(model_obj, as.formula(paste("pairwise ~ time |", group_var)))
+  as.data.frame(emm$contrasts) %>%
     mutate(model = model_name)
 }
 
-# If needed, install broom.mixed first:
-# install.packages("broom.mixed")
-library(broom.mixed)
+full_summary <- bind_rows(
+  lapply(names(all_group_models), function(nm) {
+    # Recover the group_var from the model name
+    # model names are like "depression_NfC", "anxiety_AAQ", etc.
+    group_name <- str_split(nm, "_")[[1]][1]
+    group_var  <- paste0(group_name, "_group")
+    extract_all_effects(all_group_models[[nm]], nm, group_var)
+  })
+)
+
+print(full_summary)
+
+# Extract interaction terms (does High differ from Low in their change?)
+extract_interaction <- function(model_obj, model_name, group_var) {
+  broom.mixed::tidy(model_obj, effects = "fixed") %>%
+    filter(str_detect(term, "timePost:")) %>%
+    mutate(model = model_name, group_var = group_var)
+}
 
 interaction_summary <- bind_rows(
-  lapply(names(all_group_models), function(nm) extract_interaction(all_group_models[[nm]], nm))
+  lapply(names(all_group_models), function(nm) {
+    group_name <- str_split(nm, "_")[[1]][1]
+    group_var  <- paste0(group_name, "_group")
+    extract_interaction(all_group_models[[nm]], nm, group_var)
+  })
 )
 
 print(interaction_summary)
@@ -829,32 +849,22 @@ print(interaction_summary)
 # =========================================================
 
 nfc_dep_cont_long <- master_df %>%
-  select(ID, nfc.total_pre, nfc.total_post, dass.depression_pre) %>%
+  select(ID, nfc.total_pre_z, nfc.total_post_z, dass.depression_pre_z) %>%
   pivot_longer(
-    cols = c(nfc.total_pre, nfc.total_post),
+    cols = c(nfc.total_pre_z, nfc.total_post_z),
     names_to = "time",
     values_to = "nfc_total"
   ) %>%
-  mutate(
-    time = factor(time, levels = c("nfc.total_pre", "nfc.total_post"), labels = c("Pre", "Post"))
-  )
+  mutate(time = factor(time, 
+                       levels = c("nfc.total_pre_z", "nfc.total_post_z"), 
+                       labels = c("Pre", "Post")))
 
-nfc_dep_cont_model <- lmer(
-  nfc_total ~ time * dass.depression_pre + (1 | ID),
-  data = nfc_dep_cont_long
-)
+nfc_dep_cont_model <- lmer(nfc_total ~ time * dass.depression_pre_z + (1 | ID),
+                           data = nfc_dep_cont_long)
 
-summary(nfc_dep_cont_model)
-
-ggplot(
-  master_df %>%
-    transmute(
-      ID,
-      dass.depression_pre,
-      nfc_change = nfc.total_post - nfc.total_pre
-    ),
-  aes(x = dass.depression_pre, y = nfc_change)
-) +
+ggplot(master_df %>% transmute(ID, dass.depression_pre_z,
+                                nfc_change = nfc.total_post_z - nfc.total_pre_z),
+       aes(x = dass.depression_pre_z, y = nfc_change)) +
   geom_point(alpha = 0.4) +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
   theme_classic() +
@@ -864,6 +874,183 @@ ggplot(
     y = "NfC Change (Post - Pre)"
   )
 ```
+```{r}
+# =========================================================
+# 5) HOW DO ACUTE SUBJECTIVE EFFECTS PREDICT COGNITIVE CHANGE?
+# =========================================================
+
+subjective_predictors <- c(
+  # MEQ subscales
+  "meq.total_z", "meq.mystical_z", "meq.positive_z", 
+  "meq.transendence_z", "meq.ineffibility_z",
+  # CEQ subscales
+  "ceq.total_z", "ceq.fear_z", "ceq.grief_z", "ceq.physDistress_z",
+  "ceq.insanity_z", "ceq.isolation_z", "ceq.death_z", "ceq.paranoia_z",
+  # PIQ subscales
+  "psychinsight.total_z", "psychinsight.amp_z", "psychinsight.gap_z"
+)
+
+cognitive_deltas <- tribble(
+  ~outcome,                 ~label,
+  "nfc_delta_z",            "NfC Change",
+  "aaq_delta_z",            "AAQ Change",
+  "cfs_delta_z",            "CFS Change",
+  "wmq_totaldelta_z",       "WMQ Total Change",
+  "wmq_storagedelta_z",     "WMQ Storage Change",
+  "wmq_attentiondelta_z",   "WMQ Attention Change",
+  "wmq_executivedelta_z",   "WMQ Executive Change",
+  "dass_depressiondelta_z", "DASS Depression Change",
+  "dass_anxietydelta_z",    "DASS Anxiety Change",
+  "dass_stressdelta_z",     "DASS Stress Change"
+)
+
+results_list <- list()
+
+for (pred in subjective_predictors) {
+  for (i in seq_len(nrow(cognitive_deltas))) {
+    outcome <- cognitive_deltas$outcome[i]
+    label   <- cognitive_deltas$label[i]
+    
+    formula  <- as.formula(paste(outcome, "~", pred))
+    model    <- lm(formula, data = master_df)
+    
+    tidy_res <- broom::tidy(model) %>%
+      filter(term == pred) %>%
+      mutate(predictor = pred, outcome = label)
+    
+    results_list[[paste(pred, outcome, sep = "_")]] <- tidy_res
+  }
+}
+
+subjective_results <- bind_rows(results_list) %>%
+  mutate(
+    instrument = case_when(
+      str_detect(predictor, "meq") ~ "MEQ",
+      str_detect(predictor, "ceq") ~ "CEQ",
+      str_detect(predictor, "psychinsight") ~ "PIQ"
+    )
+  ) %>%
+  group_by(instrument) %>%
+  mutate(p.fdr = p.adjust(p.value, method = "fdr")) %>%
+  ungroup() %>%
+  select(instrument, predictor, outcome, estimate, std.error, statistic, p.value, p.fdr) %>%
+  arrange(instrument, p.value)
+
+print(subjective_results)
+
+ggplot(subjective_results, aes(x = predictor, y = outcome, fill = estimate)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.2f\n(%.3f)", estimate, p.fdr)), size = 2.8) +
+  scale_fill_gradient2(low = "navy", mid = "white", high = "firebrick", midpoint = 0) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Subjective Experience Predicting Cognitive/Mood Change",
+    x = "Subjective Predictor",
+    y = "Outcome (Delta)",
+    fill = "β"
+  )
+```
+```{r}
+# =========================================================
+# 6) DOSE, SUBSTANCE, AND REASON FOR USE AS PREDICTORS
+#    OF COGNITIVE AND MOOD CHANGE
+# =========================================================
+
+master_df <- master_df %>% 
+  select(-any_of(c("Psychedelics_dose", "Psychedelics_used", "Psychedelics_reason",
+                   "reason_recreation", "reason_therapeutic", "reason_explore",
+                   "reason_spiritual", "reason_other")))
+
+master_df <- master_df %>%
+  left_join(
+    data_clean %>% select(ID, Psychedelics_dose, Psychedelics_used, Psychedelics_reason),
+    by = "ID"
+  )
+
+master_df$Psychedelics_dose <- factor(master_df$Psychedelics_dose,
+                                       levels = 1:5,
+                                       labels = c("Imperceptible", "Microdose", 
+                                                  "Low", "Moderate", "High"))
+
+master_df$Psychedelics_used <- factor(master_df$Psychedelics_used,
+                                       levels = 1:6,
+                                       labels = c("LSD", "Psilocybin", "DMT", 
+                                                  "5-MEO-DMT", "Mescaline", "Ayahuasca"))
+
+# From the survey: 1=Recreation, 2=Therapeutic, 3=Self-Exploration, 4=spiritual, 5=Other
+master_df <- master_df %>%
+  mutate(
+    reason_recreation  = as.integer(str_detect(Psychedelics_reason, "1")),
+    reason_therapeutic = as.integer(str_detect(Psychedelics_reason, "2")),
+    reason_explore    = as.integer(str_detect(Psychedelics_reason, "3")),
+    reason_spiritual   = as.integer(str_detect(Psychedelics_reason, "4")),
+    reason_other       = as.integer(str_detect(Psychedelics_reason, "5"))
+  )
+
+use_predictors <- c("Psychedelics_dose", "Psychedelics_used", 
+                    "reason_recreation", "reason_therapeutic",
+                    "reason_explore", "reason_spiritual", "reason_other")
+
+results_list_use <- list()
+
+# Substance counts
+cat("\n=== Substance Used ===\n")
+print(table(master_df$Psychedelics_used))
+
+# Dose counts
+cat("\n=== Dose ===\n")
+print(table(master_df$Psychedelics_dose))
+
+# Reason counts (each binary column separately)
+cat("\n=== Reasons for Use ===\n")
+reason_counts <- data.frame(
+  Reason = c("Recreation", "Therapeutic", "Self-Exploration", "Spiritual", "Other"),
+  Count  = c(
+    sum(master_df$reason_recreation,  na.rm = TRUE),
+    sum(master_df$reason_therapeutic, na.rm = TRUE),
+    sum(master_df$reason_explore,     na.rm = TRUE),
+    sum(master_df$reason_spiritual,   na.rm = TRUE),
+    sum(master_df$reason_other,       na.rm = TRUE)
+  )
+) %>%
+  mutate(Percent = round(Count / nrow(master_df) * 100, 1))
+
+print(reason_counts)
+
+
+for (pred in use_predictors) {
+  for (i in seq_len(nrow(cognitive_deltas))) {
+    outcome <- cognitive_deltas$outcome[i]
+    label   <- cognitive_deltas$label[i]
+    
+    formula  <- as.formula(paste(outcome, "~", pred))
+    model    <- lm(formula, data = master_df)
+    
+    tidy_res <- broom::tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      mutate(predictor = pred, outcome = label)
+    
+    results_list_use[[paste(pred, outcome, sep = "_")]] <- tidy_res
+  }
+}
+
+use_results <- bind_rows(results_list_use) %>%
+  mutate(
+    category = case_when(
+      predictor == "Psychedelics_dose" ~ "dose",
+      predictor == "Psychedelics_used" ~ "substance",
+      str_detect(predictor, "reason") ~ "reason"
+    )
+  ) %>%
+  group_by(category) %>%
+  mutate(p.fdr = p.adjust(p.value, method = "fdr")) %>%
+  ungroup() %>%
+  select(category, predictor, term, outcome, estimate, std.error, statistic, p.value, p.fdr) %>%
+  arrange(category, p.value)
+
+print(use_results)
+```
 
 ```
 
@@ -872,3 +1059,4 @@ Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by press
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
 
 The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
